@@ -1,3 +1,11 @@
+/* 
+    ASYNCHRONOUS FIFO
+    Modified version of zakii.la.coocan.jp/digital/18_async_fifo.htm
+
+    DW = Data width
+    DEPTH = Memory depth
+*/
+
 module IC_fifo_async #(parameter DW=16, DEPTH=8) (
     input   wire                    i_RST_n, //reset
     input   wire                    i_WCLK, //write clock

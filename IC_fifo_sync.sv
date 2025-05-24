@@ -1,3 +1,11 @@
+/* 
+    SYNCHRONOUS FIFO
+    Modified version of zakii.la.coocan.jp/digital/17_sync_fifo.htm
+
+    DW = Data width
+    DEPTH = Memory depth
+*/
+
 module IC_fifo_sync #(parameter DW=16, DEPTH=8) (
     input   wire                            i_RST_n,
     input   wire                            i_CLK,
