@@ -6,7 +6,15 @@
     DWY = Y input data width  
     PIPE = n-bit configuration for pipelining, where n = (DWX / 2) + (DWX % 2)  
     PIPE[n-1...0] = 1 to insert flops, 0 to leave it combinational  
-    e.g., 4'b1111 inserts flops at every stage; 4'b1010 inserts flops every two stages  
+    e.g., 4'b1111 inserts flops at every stage; 4'b1010 inserts flops every two stages
+
+    Note:
+    The "_ref" version extends the sign extension of the intermediate stage to DWX+DWY.
+    This makes it easier for simulation tools to see the values in the registers.
+    It turns out that Design Compiler assigns valid circuits to the "dummy" MSBs for
+    sign extension. Actually, in the early stages, the MSBs are just duplicates of
+    the sign bit in the narrower adder, and there's no reason to use them. Stupidly
+    DC does. I deliberately truncated the width of the adder; this improves PPA.
 */
 
 module IC_bmul_rd4 #(parameter DWX = 8, parameter DWY = 8, parameter PIPE = 0) (
@@ -62,29 +70,30 @@ reg signed  [DWX+DWY:0]     pp_sr[PP_NUM];
 genvar pp_iter;
 generate for(pp_iter=0; pp_iter<PP_NUM; pp_iter=pp_iter+1) begin
 
-parameter   fa_s_bot = pp_iter*2; //Full adder's bottom bit of this stage
-parameter   fa_s_top = (fa_s_bot-1+FA_DW) > DWX+DWY ? DWX+DWY : fa_s_bot-1+FA_DW; //full adder's top bit, should be saturated
-parameter   fa_s_dw  = fa_s_top-fa_s_bot+1;
-parameter   fa_a_bot = pp_iter*2;
-parameter   fa_a_top = fa_s_top-3;
-parameter   fa_a_sx  = 3;
-parameter   fa_a_dw  = fa_a_top-fa_a_bot+1+fa_a_sx;
-parameter   fa_b_sx  = fa_a_dw - DWY;
-parameter   fa_b_dw  = DWY+1+fa_b_sx;
+//Declare parameters for this step
+parameter   fa_s_bot = pp_iter*2; //full adder's bottom bit position in pp_sr
+parameter   fa_s_top = (fa_s_bot-1+FA_DW) > DWX+DWY ? DWX+DWY : fa_s_bot-1+FA_DW; //full adder's top bit position in pp_sr, should be saturated
+parameter   fa_s_dw  = fa_s_top-fa_s_bot+1; //full adder's data width
+parameter   fa_a_bot = pp_iter*2; //addend-A's bottom bit; from the previous pp_sr stage
+parameter   fa_a_top = fa_s_top-3; //addend-A's top bit; from the previous pp_sr stage
+parameter   fa_a_sx  = 3; //addend-A's sign extension bits
+parameter   fa_a_dw  = fa_a_top-fa_a_bot+1+fa_a_sx; //this must match fa_s_dw for proper sign handling
+parameter   fa_b_sx  = fa_a_dw - DWY; //addend-B's sign extension bits
+parameter   fa_b_dw  = DWY+1+fa_b_sx; //addend-B's data width, this must match fa_s_dw
 
 wire        [2:0]                   r4d_ctrl = x_ex_sr[pp_iter-1][pp_iter*2+:3];
 wire signed [DWY:0]                 r4d_val  = r4dec(y_sr[pp_iter-1], r4d_ctrl);
 wire                                fa_ci = x_ex_sr[pp_iter-1][2+(pp_iter*2)] == 1'b1 && x_ex_sr[pp_iter-1][2+(pp_iter*2)-:3] != 3'b111;
 wire signed [fa_a_dw-1:0]           fa_a  = {{fa_a_sx{pp_sr[pp_iter-1][fa_a_top]}}, pp_sr[pp_iter-1][fa_a_top:fa_a_bot]};
 wire signed [fa_b_dw-1:0]           fa_b  = {{fa_b_sx{r4d_val[DWY]}}, r4d_val};
-wire signed [fa_s_dw-1:0]           fa_s  = fa_a + fa_b + fa_ci;
+wire signed [fa_s_dw-1:0]           fa_s  = pp_iter == 0 ? fa_b + fa_ci : fa_a + fa_b + fa_ci; //can be replaced with any CLA primitives
 
 //make the first stage, carry propagation adder
 if(pp_iter == 0) begin
     if(PIPE[pp_iter] == 0) always_comb
-        pp_sr[pp_iter][fa_s_top:fa_s_bot] = fa_b + fa_ci;
+        pp_sr[pp_iter][fa_s_top:fa_s_bot] = fa_s;
     else always_ff @(posedge i_CLK)
-        pp_sr[pp_iter][fa_s_top:fa_s_bot] <= fa_b + fa_ci;
+        pp_sr[pp_iter][fa_s_top:fa_s_bot] <= fa_s;
 end
 
 //remaining stages
@@ -106,7 +115,7 @@ endmodule
 
 
 /*
-module IC_bmul_rd4_orig #(parameter DWX = 8, parameter DWY = 8, parameter PIPE = 0) (
+module IC_bmul_rd4_ref #(parameter DWX = 8, parameter DWY = 8, parameter PIPE = 0) (
     input   wire                        i_CLK,
     input   wire signed [DWX-1:0]       i_X,
     input   wire signed [DWY-1:0]       i_Y,
